@@ -5,11 +5,16 @@
   <meta charset="UTF-8">
   <meta name="viewport"
         content="width=device-width, initial-scale=1">
-  <title>QR Scanner</title>
+
+  <title>AIS QR Scanner</title>
 
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       font-family: Arial, sans-serif;
       background: #f3f5f8;
@@ -21,40 +26,56 @@
     .panel {
       background: white;
       max-width: 480px;
-      margin: auto;
+      margin: 0 auto;
       padding: 18px;
       border-radius: 14px;
+      box-shadow: 0 3px 14px rgba(0,0,0,0.08);
+    }
+
+    h2 {
+      margin-top: 5px;
+      color: #17365d;
     }
 
     input, button {
       box-sizing: border-box;
       width: 100%;
-      padding: 13px;
+      padding: 14px;
       margin: 7px 0;
       font-size: 16px;
       border-radius: 8px;
     }
 
-    input { border: 1px solid #ccc; }
+    input {
+      border: 1px solid #ccc;
+    }
 
     button {
       background: #1769aa;
       color: white;
       border: none;
       font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      background: #aaa;
     }
 
     #reader {
       margin-top: 15px;
       width: 100%;
+      overflow: hidden;
     }
 
     #status {
       padding: 15px;
       margin-top: 12px;
-      background: #eee;
+      background: #eeeeee;
       border-radius: 8px;
-      font-size: 18px;
+      font-size: 17px;
+      font-weight: bold;
+      overflow-wrap: anywhere;
     }
 
     .success {
@@ -67,192 +88,447 @@
       color: #8d1717;
     }
 
+    .processing {
+      background: #fff3c4 !important;
+      color: #805b00;
+    }
+
     #count {
-      font-size: 28px;
+      font-size: 32px;
       font-weight: bold;
-      margin: 12px;
+      margin: 15px;
+      color: #17365d;
     }
 
     #last {
       font-family: monospace;
-      font-size: 22px;
+      font-size: 24px;
+      font-weight: bold;
       overflow-wrap: anywhere;
+    }
+
+    #history {
+      margin-top: 20px;
+      text-align: left;
+    }
+
+    .history-item {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+      font-family: monospace;
+      font-size: 15px;
+      overflow-wrap: anywhere;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #777;
+      margin-top: 15px;
     }
   </style>
 </head>
 
 <body>
-  <div class="panel">
-    <h2>QR Code Scanner</h2>
 
-    <div id="settings">
-      <input id="webAppUrl"
-             placeholder="Paste Apps Script /exec URL">
-      <input id="scannerKey"
-             placeholder="Paste scanner key">
-      <button onclick="startScanner()">
-        Start Camera
-      </button>
-    </div>
+<div class="panel">
 
-    <div id="reader"></div>
+  <h2>AIS QR Scanner</h2>
 
-    <div id="status">Ready to start</div>
+  <div id="settings">
 
-    <div id="count">0 scans</div>
+    <input
+      id="webAppUrl"
+      type="url"
+      placeholder="Paste Google Apps Script Web App URL"
+      autocomplete="off">
 
-    <div>Last successfully saved QR code:</div>
-    <p id="last">—</p>
+    <input
+      id="scannerKey"
+      type="password"
+      placeholder="Paste Scanner Key"
+      autocomplete="off">
+
+    <button id="startButton" onclick="startScanner()">
+      Start Camera
+    </button>
+
   </div>
 
-  <script>
-    let scanner;
-    let busy = false;
-    let scanCount = 0;
-    let lastCode = '';
-    let lastTime = 0;
+  <div id="reader"></div>
 
-    const COOLDOWN_MS = 2000;
+  <div id="status">
+    Ready to start
+  </div>
 
-    function setStatus(message, type = '') {
-      const el = document.getElementById('status');
-      el.textContent = message;
-      el.className = type;
+  <div id="count">
+    0 scans
+  </div>
+
+  <div>
+    Last successfully saved QR code:
+  </div>
+
+  <p id="last">—</p>
+
+  <div id="history">
+    <h3>Recent Scans</h3>
+    <div id="historyList"></div>
+  </div>
+
+  <div class="small">
+    AIS QR Scanner — Proof of Concept
+  </div>
+
+</div>
+
+<script>
+
+  // ========================================
+  // CONFIGURATION
+  // ========================================
+
+  const COOLDOWN_MS = 3000;
+
+  // ========================================
+  // VARIABLES
+  // ========================================
+
+  let scanner = null;
+  let busy = false;
+  let scanCount = 0;
+
+  let lastCode = '';
+  let lastTime = 0;
+
+  let webAppUrl = '';
+  let scannerKey = '';
+
+  // ========================================
+  // STATUS
+  // ========================================
+
+  function setStatus(message, type = '') {
+
+    const el = document.getElementById('status');
+
+    el.textContent = message;
+    el.className = type;
+
+  }
+
+  // ========================================
+  // START CAMERA
+  // ========================================
+
+  async function startScanner() {
+
+    webAppUrl = document
+      .getElementById('webAppUrl')
+      .value
+      .trim();
+
+    scannerKey = document
+      .getElementById('scannerKey')
+      .value
+      .trim();
+
+    // IMPORTANT:
+    // Accept normal and Google Workspace URLs.
+    // No restrictive URL regex.
+
+    if (!webAppUrl || !scannerKey) {
+
+      setStatus(
+        'Please enter the Web App URL and Scanner Key.',
+        'error'
+      );
+
+      return;
     }
 
-    function startScanner() {
-      const url = document
-        .getElementById('webAppUrl').value.trim();
+    if (!webAppUrl.startsWith('https://')) {
 
-      const key = document
-        .getElementById('scannerKey').value.trim();
+      setStatus(
+        'The Web App URL must start with https://',
+        'error'
+      );
 
-      if (!url || !key) {
-  setStatus('Please enter both the Web App URL and scanner key.', 'error');
-  return;
-}
-        setStatus('Enter a valid Web App URL and key.', 'error');
-        return;
-      }
+      return;
+    }
 
-      document.getElementById('settings').style.display = 'none';
+    if (typeof Html5Qrcode === 'undefined') {
+
+      setStatus(
+        'QR scanner library did not load.',
+        'error'
+      );
+
+      return;
+    }
+
+    document.getElementById('startButton').disabled = true;
+
+    setStatus('Opening camera...', 'processing');
+
+    try {
 
       scanner = new Html5Qrcode('reader');
 
-      scanner.start(
+      await scanner.start(
+
         { facingMode: 'environment' },
+
         {
           fps: 10,
-          qrbox: { width: 240, height: 240 }
+          qrbox: {
+            width: 240,
+            height: 240
+          }
         },
+
         onDetected,
+
         () => {}
-      ).then(() => {
-        setStatus('Camera active — show a QR code');
-      }).catch(err => {
-        document.getElementById('settings').style.display = '';
-        setStatus('Camera error: ' + err, 'error');
-      });
+
+      );
+
+      document.getElementById('settings')
+        .style.display = 'none';
+
+      setStatus(
+        'Camera active — show a QR code'
+      );
+
+    } catch (err) {
+
+      document.getElementById('startButton')
+        .disabled = false;
+
+      setStatus(
+        'Camera error: ' + err,
+        'error'
+      );
+
     }
 
-    async function onDetected(decodedText) {
-      if (busy) return;
+  }
 
-      const code = String(decodedText).trim();
-      const now = Date.now();
+  // ========================================
+  // QR CODE DETECTED
+  // ========================================
 
-      if (code === lastCode &&
-          now - lastTime < COOLDOWN_MS) {
-        return;
-      }
+  async function onDetected(decodedText) {
 
-      busy = true;
-      setStatus('Saving: ' + code);
+    if (busy) {
+      return;
+    }
 
-      try {
-        const result = await sendToSheet(code);
+    // Keep the QR content as a STRING.
+    // Never convert to Number.
 
-        if (!result.success) {
-          throw new Error(result.error || 'Save failed');
-        }
+    const code = String(decodedText).trim();
 
-        scanCount++;
-        lastCode = code;
-        lastTime = Date.now();
+    const now = Date.now();
 
-        document.getElementById('count')
-          .textContent = scanCount + ' scans';
+    // Only numeric-looking QR values allowed.
+    // Leading zeros are preserved.
 
-        document.getElementById('last')
-          .textContent = result.code;
+    if (!/^[0-9]{1,100}$/.test(code)) {
 
-        setStatus(
-          'Saved to Google Sheets — row ' + result.row,
-          'success'
+      setStatus(
+        'Invalid QR code: digits only',
+        'error'
+      );
+
+      return;
+    }
+
+    // Prevent rapid duplicate scans.
+
+    if (
+      code === lastCode &&
+      now - lastTime < COOLDOWN_MS
+    ) {
+      return;
+    }
+
+    busy = true;
+
+    setStatus(
+      'Saving: ' + code,
+      'processing'
+    );
+
+    try {
+
+      const result = await sendToSheet(code);
+
+      if (!result.success) {
+
+        throw new Error(
+          result.error || 'Save failed'
         );
 
-        if (navigator.vibrate) {
-          navigator.vibrate(100);
-        }
-
-      } catch (err) {
-        setStatus('Not saved: ' + err.message, 'error');
-
-      } finally {
-        busy = false;
       }
+
+      // ====================================
+      // SUCCESS
+      // ====================================
+
+      scanCount++;
+
+      lastCode = code;
+      lastTime = Date.now();
+
+      document.getElementById('count')
+        .textContent = scanCount + ' scans';
+
+      document.getElementById('last')
+        .textContent = result.code;
+
+      setStatus(
+        'Saved to Google Sheets — Row ' + result.row,
+        'success'
+      );
+
+      // Vibrate phone for feedback.
+
+      if (navigator.vibrate) {
+        navigator.vibrate(120);
+      }
+
+      addHistory(result.code, result.row);
+
+    } catch (err) {
+
+      setStatus(
+        'Not saved: ' + err.message,
+        'error'
+      );
+
+    } finally {
+
+      busy = false;
+
     }
 
-    function sendToSheet(code) {
-      return new Promise((resolve, reject) => {
-        const url = document
-          .getElementById('webAppUrl').value.trim();
+  }
 
-        const key = document
-          .getElementById('scannerKey').value.trim();
+  // ========================================
+  // SEND SCAN TO GOOGLE APPS SCRIPT
+  // ========================================
 
-        const callback =
-          'scanCallback_' +
-          Date.now() + '_' +
-          Math.floor(Math.random() * 1000000);
+  function sendToSheet(code) {
 
-        const script = document.createElement('script');
-        let finished = false;
+    return new Promise((resolve, reject) => {
 
-        const timer = setTimeout(() => {
-          finish(new Error('Request timed out'));
-        }, 15000);
+      const callback =
+        'scanCallback_' +
+        Date.now() + '_' +
+        Math.floor(Math.random() * 1000000);
 
-        function finish(err, result) {
-          if (finished) return;
-          finished = true;
+      const script = document.createElement('script');
 
-          clearTimeout(timer);
-          delete window[callback];
-          script.remove();
+      let finished = false;
 
-          if (err) reject(err);
-          else resolve(result);
+      const timer = setTimeout(() => {
+
+        finish(
+          new Error('Request timed out')
+        );
+
+      }, 15000);
+
+      function finish(err, result) {
+
+        if (finished) {
+          return;
         }
 
-        window[callback] = result => {
-          finish(null, result);
-        };
+        finished = true;
 
-        script.onerror = () => {
-          finish(new Error('Connection failed'));
-        };
+        clearTimeout(timer);
 
-        const params = new URLSearchParams({
-          code: code,
-          key: key,
-          callback: callback
-        });
+        delete window[callback];
 
-        script.src = url + '?' + params.toString();
-        document.body.appendChild(script);
+        script.remove();
+
+        if (err) {
+          reject(err);
+        } else {
+          resolve(result);
+        }
+
+      }
+
+      // JSONP callback from Apps Script.
+
+      window[callback] = function(result) {
+
+        finish(null, result);
+
+      };
+
+      script.onerror = function() {
+
+        finish(
+          new Error('Connection failed')
+        );
+
+      };
+
+      const params = new URLSearchParams({
+
+        code: code,
+        key: scannerKey,
+        callback: callback
+
       });
+
+      const separator =
+        webAppUrl.includes('?') ? '&' : '?';
+
+      script.src =
+        webAppUrl + separator + params.toString();
+
+      document.body.appendChild(script);
+
+    });
+
+  }
+
+  // ========================================
+  // SCAN HISTORY
+  // ========================================
+
+  function addHistory(code, row) {
+
+    const list = document
+      .getElementById('historyList');
+
+    const item = document.createElement('div');
+
+    item.className = 'history-item';
+
+    const time = new Date()
+      .toLocaleTimeString();
+
+    item.textContent =
+      time + ' | Row ' + row + ' | ' + code;
+
+    list.prepend(item);
+
+    // Show latest 10 scans only.
+
+    while (list.children.length > 10) {
+
+      list.removeChild(list.lastChild);
+
     }
-  </script>
+
+  }
+
+</script>
+
 </body>
 </html>
