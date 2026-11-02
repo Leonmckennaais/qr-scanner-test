@@ -1,0 +1,256 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1">
+  <title>QR Scanner</title>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f3f5f8;
+      margin: 0;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .panel {
+      background: white;
+      max-width: 480px;
+      margin: auto;
+      padding: 18px;
+      border-radius: 14px;
+    }
+
+    input, button {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 13px;
+      margin: 7px 0;
+      font-size: 16px;
+      border-radius: 8px;
+    }
+
+    input { border: 1px solid #ccc; }
+
+    button {
+      background: #1769aa;
+      color: white;
+      border: none;
+      font-weight: bold;
+    }
+
+    #reader {
+      margin-top: 15px;
+      width: 100%;
+    }
+
+    #status {
+      padding: 15px;
+      margin-top: 12px;
+      background: #eee;
+      border-radius: 8px;
+      font-size: 18px;
+    }
+
+    .success {
+      background: #c9f2d5 !important;
+      color: #145b2c;
+    }
+
+    .error {
+      background: #ffd5d5 !important;
+      color: #8d1717;
+    }
+
+    #count {
+      font-size: 28px;
+      font-weight: bold;
+      margin: 12px;
+    }
+
+    #last {
+      font-family: monospace;
+      font-size: 22px;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="panel">
+    <h2>QR Code Scanner</h2>
+
+    <div id="settings">
+      <input id="webAppUrl"
+             placeholder="Paste Apps Script /exec URL">
+      <input id="scannerKey"
+             placeholder="Paste scanner key">
+      <button onclick="startScanner()">
+        Start Camera
+      </button>
+    </div>
+
+    <div id="reader"></div>
+
+    <div id="status">Ready to start</div>
+
+    <div id="count">0 scans</div>
+
+    <div>Last successfully saved QR code:</div>
+    <p id="last">—</p>
+  </div>
+
+  <script>
+    let scanner;
+    let busy = false;
+    let scanCount = 0;
+    let lastCode = '';
+    let lastTime = 0;
+
+    const COOLDOWN_MS = 2000;
+
+    function setStatus(message, type = '') {
+      const el = document.getElementById('status');
+      el.textContent = message;
+      el.className = type;
+    }
+
+    function startScanner() {
+      const url = document
+        .getElementById('webAppUrl').value.trim();
+
+      const key = document
+        .getElementById('scannerKey').value.trim();
+
+      if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url) ||
+          !key) {
+        setStatus('Enter a valid Web App URL and key.', 'error');
+        return;
+      }
+
+      document.getElementById('settings').style.display = 'none';
+
+      scanner = new Html5Qrcode('reader');
+
+      scanner.start(
+        { facingMode: 'environment' },
+        {
+          fps: 10,
+          qrbox: { width: 240, height: 240 }
+        },
+        onDetected,
+        () => {}
+      ).then(() => {
+        setStatus('Camera active — show a QR code');
+      }).catch(err => {
+        document.getElementById('settings').style.display = '';
+        setStatus('Camera error: ' + err, 'error');
+      });
+    }
+
+    async function onDetected(decodedText) {
+      if (busy) return;
+
+      const code = String(decodedText).trim();
+      const now = Date.now();
+
+      if (code === lastCode &&
+          now - lastTime < COOLDOWN_MS) {
+        return;
+      }
+
+      busy = true;
+      setStatus('Saving: ' + code);
+
+      try {
+        const result = await sendToSheet(code);
+
+        if (!result.success) {
+          throw new Error(result.error || 'Save failed');
+        }
+
+        scanCount++;
+        lastCode = code;
+        lastTime = Date.now();
+
+        document.getElementById('count')
+          .textContent = scanCount + ' scans';
+
+        document.getElementById('last')
+          .textContent = result.code;
+
+        setStatus(
+          'Saved to Google Sheets — row ' + result.row,
+          'success'
+        );
+
+        if (navigator.vibrate) {
+          navigator.vibrate(100);
+        }
+
+      } catch (err) {
+        setStatus('Not saved: ' + err.message, 'error');
+
+      } finally {
+        busy = false;
+      }
+    }
+
+    function sendToSheet(code) {
+      return new Promise((resolve, reject) => {
+        const url = document
+          .getElementById('webAppUrl').value.trim();
+
+        const key = document
+          .getElementById('scannerKey').value.trim();
+
+        const callback =
+          'scanCallback_' +
+          Date.now() + '_' +
+          Math.floor(Math.random() * 1000000);
+
+        const script = document.createElement('script');
+        let finished = false;
+
+        const timer = setTimeout(() => {
+          finish(new Error('Request timed out'));
+        }, 15000);
+
+        function finish(err, result) {
+          if (finished) return;
+          finished = true;
+
+          clearTimeout(timer);
+          delete window[callback];
+          script.remove();
+
+          if (err) reject(err);
+          else resolve(result);
+        }
+
+        window[callback] = result => {
+          finish(null, result);
+        };
+
+        script.onerror = () => {
+          finish(new Error('Connection failed'));
+        };
+
+        const params = new URLSearchParams({
+          code: code,
+          key: key,
+          callback: callback
+        });
+
+        script.src = url + '?' + params.toString();
+        document.body.appendChild(script);
+      });
+    }
+  </script>
+</body>
+</html>
