@@ -2,533 +2,237 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1">
+<title>AIS QR Scanner</title>
 
-  <title>AIS QR Scanner</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
 
-  <style>
-    * {
-      box-sizing: border-box;
-    }
+  body {
+    font-family: Arial, sans-serif;
+    background: #f3f5f8;
+    margin: 0;
+    padding: 16px;
+    text-align: center;
+  }
 
-    body {
-      font-family: Arial, sans-serif;
-      background: #f3f5f8;
-      margin: 0;
-      padding: 16px;
-      text-align: center;
-    }
+  main {
+    max-width: 480px;
+    margin: auto;
+    background: white;
+    padding: 20px;
+    border-radius: 14px;
+  }
 
-    .panel {
-      background: white;
-      max-width: 480px;
-      margin: 0 auto;
-      padding: 18px;
-      border-radius: 14px;
-      box-shadow: 0 3px 14px rgba(0,0,0,0.08);
-    }
+  input, button {
+    width: 100%;
+    padding: 14px;
+    font-size: 16px;
+    margin: 6px 0;
+    border-radius: 8px;
+  }
 
-    h2 {
-      margin-top: 5px;
-      color: #17365d;
-    }
+  input { border: 1px solid #ccc; }
 
-    input, button {
-      box-sizing: border-box;
-      width: 100%;
-      padding: 14px;
-      margin: 7px 0;
-      font-size: 16px;
-      border-radius: 8px;
-    }
+  button {
+    background: #1769aa;
+    color: white;
+    border: none;
+  }
 
-    input {
-      border: 1px solid #ccc;
-    }
+  #reader { margin-top: 15px; }
 
-    button {
-      background: #1769aa;
-      color: white;
-      border: none;
-      font-weight: bold;
-      cursor: pointer;
-    }
+  #status {
+    margin: 15px 0;
+    padding: 15px;
+    background: #eee;
+    border-radius: 8px;
+    overflow-wrap: anywhere;
+  }
 
-    button:disabled {
-      background: #aaa;
-    }
+  .sent { background: #fff0bd !important; }
+  .error { background: #ffd6d6 !important; }
 
-    #reader {
-      margin-top: 15px;
-      width: 100%;
-      overflow: hidden;
-    }
+  #count {
+    font-size: 30px;
+    font-weight: bold;
+  }
 
-    #status {
-      padding: 15px;
-      margin-top: 12px;
-      background: #eeeeee;
-      border-radius: 8px;
-      font-size: 17px;
-      font-weight: bold;
-      overflow-wrap: anywhere;
-    }
+  #last {
+    font-family: monospace;
+    font-size: 24px;
+    overflow-wrap: anywhere;
+  }
 
-    .success {
-      background: #c9f2d5 !important;
-      color: #145b2c;
-    }
+  #history {
+    text-align: left;
+    font-family: monospace;
+    overflow-wrap: anywhere;
+  }
 
-    .error {
-      background: #ffd5d5 !important;
-      color: #8d1717;
-    }
-
-    .processing {
-      background: #fff3c4 !important;
-      color: #805b00;
-    }
-
-    #count {
-      font-size: 32px;
-      font-weight: bold;
-      margin: 15px;
-      color: #17365d;
-    }
-
-    #last {
-      font-family: monospace;
-      font-size: 24px;
-      font-weight: bold;
-      overflow-wrap: anywhere;
-    }
-
-    #history {
-      margin-top: 20px;
-      text-align: left;
-    }
-
-    .history-item {
-      padding: 10px;
-      border-bottom: 1px solid #eee;
-      font-family: monospace;
-      font-size: 15px;
-      overflow-wrap: anywhere;
-    }
-
-    .small {
-      font-size: 12px;
-      color: #777;
-      margin-top: 15px;
-    }
-  </style>
+  #history div {
+    padding: 8px;
+    border-bottom: 1px solid #ddd;
+  }
+</style>
 </head>
 
 <body>
-
-<div class="panel">
-
-  <h2>AIS QR Scanner</h2>
+<main>
+  <h2>AIS QR Scanner — V3</h2>
 
   <div id="settings">
-
-    <input
-      id="webAppUrl"
-      type="url"
-      placeholder="Paste Google Apps Script Web App URL"
-      autocomplete="off">
-
-    <input
-      id="scannerKey"
-      type="password"
-      placeholder="Paste Scanner Key"
-      autocomplete="off">
-
-    <button id="startButton" onclick="startScanner()">
-      Start Camera
-    </button>
-
+    <input id="url" placeholder="Apps Script /exec URL">
+    <input id="key" type="password"
+           placeholder="Scanner key">
+    <button onclick="startCamera()">Start Camera</button>
   </div>
 
   <div id="reader"></div>
 
-  <div id="status">
-    Ready to start
-  </div>
+  <div id="status">Ready to start</div>
 
-  <div id="count">
-    0 scans
-  </div>
+  <div id="count">0 submitted</div>
 
-  <div>
-    Last successfully saved QR code:
-  </div>
+  <p>Last QR code:</p>
+  <div id="last">—</div>
 
-  <p id="last">—</p>
+  <h3>Scans sent this session</h3>
+  <div id="history"></div>
 
-  <div id="history">
-    <h3>Recent Scans</h3>
-    <div id="historyList"></div>
-  </div>
-
-  <div class="small">
-    AIS QR Scanner — Proof of Concept
-  </div>
-
-</div>
+  <!-- Hidden target for Google Apps Script POSTs -->
+  <iframe name="scanReceiver"
+          id="scanReceiver"
+          style="display:none"></iframe>
+</main>
 
 <script>
+let scanner;
+let endpoint = '';
+let scannerKey = '';
+let count = 0;
+let busy = false;
 
-  // ========================================
-  // CONFIGURATION
-  // ========================================
+// Prevent the same code being submitted repeatedly.
+// For this test, one submission per distinct QR code.
+const submitted = new Set();
 
-  const COOLDOWN_MS = 3000;
+function status(message, css = '') {
+  const el = document.getElementById('status');
+  el.textContent = message;
+  el.className = css;
+}
 
-  // ========================================
-  // VARIABLES
-  // ========================================
+async function startCamera() {
+  endpoint = document.getElementById('url').value.trim();
+  scannerKey = document.getElementById('key').value.trim();
 
-  let scanner = null;
-  let busy = false;
-  let scanCount = 0;
-
-  let lastCode = '';
-  let lastTime = 0;
-
-  let webAppUrl = '';
-  let scannerKey = '';
-
-  // ========================================
-  // STATUS
-  // ========================================
-
-  function setStatus(message, type = '') {
-
-    const el = document.getElementById('status');
-
-    el.textContent = message;
-    el.className = type;
-
+  if (!endpoint.startsWith('https://') ||
+      !scannerKey) {
+    status('Enter Web App URL and scanner key', 'error');
+    return;
   }
 
-  // ========================================
-  // START CAMERA
-  // ========================================
-
-  async function startScanner() {
-
-    webAppUrl = document
-      .getElementById('webAppUrl')
-      .value
-      .trim();
-
-    scannerKey = document
-      .getElementById('scannerKey')
-      .value
-      .trim();
-
-    // IMPORTANT:
-    // Accept normal and Google Workspace URLs.
-    // No restrictive URL regex.
-
-    if (!webAppUrl || !scannerKey) {
-
-      setStatus(
-        'Please enter the Web App URL and Scanner Key.',
-        'error'
-      );
-
-      return;
-    }
-
-    if (!webAppUrl.startsWith('https://')) {
-
-      setStatus(
-        'The Web App URL must start with https://',
-        'error'
-      );
-
-      return;
-    }
-
-    if (typeof Html5Qrcode === 'undefined') {
-
-      setStatus(
-        'QR scanner library did not load.',
-        'error'
-      );
-
-      return;
-    }
-
-    document.getElementById('startButton').disabled = true;
-
-    setStatus('Opening camera...', 'processing');
-
-    try {
-
-      scanner = new Html5Qrcode('reader');
-
-      await scanner.start(
-
-        { facingMode: 'environment' },
-
-        {
-          fps: 10,
-          qrbox: {
-            width: 240,
-            height: 240
-          }
-        },
-
-        onDetected,
-
-        () => {}
-
-      );
-
-      document.getElementById('settings')
-        .style.display = 'none';
-
-      setStatus(
-        'Camera active — show a QR code'
-      );
-
-    } catch (err) {
-
-      document.getElementById('startButton')
-        .disabled = false;
-
-      setStatus(
-        'Camera error: ' + err,
-        'error'
-      );
-
-    }
-
+  if (!endpoint.endsWith('/exec')) {
+    status('Use the deployed /exec URL', 'error');
+    return;
   }
 
-  // ========================================
-  // QR CODE DETECTED
-  // ========================================
+  try {
+    scanner = new Html5Qrcode('reader');
 
-  async function onDetected(decodedText) {
-
-    if (busy) {
-      return;
-    }
-
-    // Keep the QR content as a STRING.
-    // Never convert to Number.
-
-    const code = String(decodedText).trim();
-
-    const now = Date.now();
-
-    // Only numeric-looking QR values allowed.
-    // Leading zeros are preserved.
-
-    if (!/^[0-9]{1,100}$/.test(code)) {
-
-      setStatus(
-        'Invalid QR code: digits only',
-        'error'
-      );
-
-      return;
-    }
-
-    // Prevent rapid duplicate scans.
-
-    if (
-      code === lastCode &&
-      now - lastTime < COOLDOWN_MS
-    ) {
-      return;
-    }
-
-    busy = true;
-
-    setStatus(
-      'Saving: ' + code,
-      'processing'
+    await scanner.start(
+      { facingMode: 'environment' },
+      {
+        fps: 10,
+        qrbox: { width: 240, height: 240 }
+      },
+      onScan,
+      () => {}
     );
 
-    try {
+    document.getElementById('settings').hidden = true;
+    status('Camera ready — scan a QR code');
 
-      const result = await sendToSheet(code);
+  } catch (err) {
+    status('Camera error: ' + err, 'error');
+  }
+}
 
-      if (!result.success) {
+function onScan(decodedText) {
+  if (busy) return;
 
-        throw new Error(
-          result.error || 'Save failed'
-        );
+  const code = String(decodedText).trim();
 
-      }
-
-      // ====================================
-      // SUCCESS
-      // ====================================
-
-      scanCount++;
-
-      lastCode = code;
-      lastTime = Date.now();
-
-      document.getElementById('count')
-        .textContent = scanCount + ' scans';
-
-      document.getElementById('last')
-        .textContent = result.code;
-
-      setStatus(
-        'Saved to Google Sheets — Row ' + result.row,
-        'success'
-      );
-
-      // Vibrate phone for feedback.
-
-      if (navigator.vibrate) {
-        navigator.vibrate(120);
-      }
-
-      addHistory(result.code, result.row);
-
-    } catch (err) {
-
-      setStatus(
-        'Not saved: ' + err.message,
-        'error'
-      );
-
-    } finally {
-
-      busy = false;
-
-    }
-
+  if (!/^[0-9]{1,100}$/.test(code)) {
+    status('QR must contain digits only', 'error');
+    return;
   }
 
-  // ========================================
-  // SEND SCAN TO GOOGLE APPS SCRIPT
-  // ========================================
+  if (submitted.has(code)) return;
 
-  function sendToSheet(code) {
+  busy = true;
 
-    return new Promise((resolve, reject) => {
+  try {
+    submitCode(code);
+    submitted.add(code);
 
-      const callback =
-        'scanCallback_' +
-        Date.now() + '_' +
-        Math.floor(Math.random() * 1000000);
+    count++;
+    document.getElementById('count').textContent =
+      count + ' submitted';
 
-      const script = document.createElement('script');
-
-      let finished = false;
-
-      const timer = setTimeout(() => {
-
-        finish(
-          new Error('Request timed out')
-        );
-
-      }, 15000);
-
-      function finish(err, result) {
-
-        if (finished) {
-          return;
-        }
-
-        finished = true;
-
-        clearTimeout(timer);
-
-        delete window[callback];
-
-        script.remove();
-
-        if (err) {
-          reject(err);
-        } else {
-          resolve(result);
-        }
-
-      }
-
-      // JSONP callback from Apps Script.
-
-      window[callback] = function(result) {
-
-        finish(null, result);
-
-      };
-
-      script.onerror = function() {
-
-        finish(
-          new Error('Connection failed')
-        );
-
-      };
-
-      const params = new URLSearchParams({
-
-        code: code,
-        key: scannerKey,
-        callback: callback
-
-      });
-
-      const separator =
-        webAppUrl.includes('?') ? '&' : '?';
-
-      script.src =
-        webAppUrl + separator + params.toString();
-
-      document.body.appendChild(script);
-
-    });
-
-  }
-
-  // ========================================
-  // SCAN HISTORY
-  // ========================================
-
-  function addHistory(code, row) {
-
-    const list = document
-      .getElementById('historyList');
+    document.getElementById('last').textContent = code;
 
     const item = document.createElement('div');
+    item.textContent = new Date().toLocaleTimeString() +
+      ' — ' + code;
 
-    item.className = 'history-item';
+    document.getElementById('history').prepend(item);
 
-    const time = new Date()
-      .toLocaleTimeString();
+    status('Submitted: ' + code +
+           ' — verify in Google Sheets', 'sent');
 
-    item.textContent =
-      time + ' | Row ' + row + ' | ' + code;
-
-    list.prepend(item);
-
-    // Show latest 10 scans only.
-
-    while (list.children.length > 10) {
-
-      list.removeChild(list.lastChild);
-
+    if (navigator.vibrate) {
+      navigator.vibrate(120);
     }
 
+  } catch (err) {
+    status('Submission error: ' + err.message, 'error');
+
+  } finally {
+    setTimeout(() => { busy = false; }, 1200);
   }
+}
 
+function submitCode(code) {
+  const form = document.createElement('form');
+
+  form.method = 'POST';
+  form.action = endpoint;
+  form.target = 'scanReceiver';
+  form.style.display = 'none';
+
+  const fields = {
+    code: code,
+    key: scannerKey
+  };
+
+  Object.entries(fields).forEach(([name, value]) => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  });
+
+  document.body.appendChild(form);
+  form.submit();
+  form.remove();
+}
 </script>
-
 </body>
 </html>
