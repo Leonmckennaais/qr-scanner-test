@@ -127,9 +127,10 @@
       const key = document
         .getElementById('scannerKey').value.trim();
 
-      if (!/^https:\/\/script\.google\.com\/(?:a\/macros\/[^/]+\/)?macros\/s\/.+\/exec$/.test(url) &&
-    !/^https:\/\/script\.google\.com\/a\/macros\/[^/]+\/s\/.+\/exec$/.test(url) ||
-    !key) {
+      if (!url || !key) {
+  setStatus('Please enter both the Web App URL and scanner key.', 'error');
+  return;
+}
         setStatus('Enter a valid Web App URL and key.', 'error');
         return;
       }
